@@ -142,7 +142,12 @@ def main():
 
                 if our_cxsum == their_cxsum:
                     args = (f, year, name)
-                    w('%s identical to %s/%s, skipping...\n' % args)
+                    w('%s identical to %s/%s, ' % args)
+                    if '--remove-duplicates' in sys.argv:
+                        w('removing...\n')
+                        os.unlink(f)
+                    else:
+                        w('skipping...\n')
                     name = None
                     break
 
