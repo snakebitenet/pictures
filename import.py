@@ -60,7 +60,6 @@ def main():
 
     if 'doctest' in sys.argv:
         import doctest
-        #doctest.testfile(abspath, module_relative=False, verbose=True)
         doctest.testmod()
         return
 
@@ -75,7 +74,9 @@ def main():
         lower = f.lower()
         is_photo = bool(photos.match(lower))
         is_movie = bool(movies.match(lower))
-        assert is_photo or is_movie, f
+        if not (is_movie or is_photo):
+            w("%s: not a photo or movie, skipping...\n" % f)
+            continue
 
         # On UNIX (at least on OS X where this was first written), mtime
         # is more likely to represent the time the image was created versus
@@ -159,8 +160,8 @@ def main():
             original_path = join_path(basedir, year, original_name)
             new_name = timestr + '-1' + ending
             new_path = join_path(basedir, year, new_name)
-            assert not os.path.exists(new_path)
-            args = (year, original_name, year, new_name)
+            msg = "%s: %s, %s" % (f, original_path, new_path)
+            assert not os.path.exists(new_path), msg
             w('%s/%s -> %s/%s\n' % args)
             os.rename(original_path, new_path)
 
