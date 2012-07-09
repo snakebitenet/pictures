@@ -5,7 +5,7 @@ import re
 import sys
 import exif
 import time
-import stat
+import hashlib
 
 from glob import iglob
 from itertools import (
@@ -64,8 +64,8 @@ def main():
         doctest.testmod()
         return
 
-    pattern = '.+(\.jpg|\.jpeg|\.png)$'
-    expected = re.compile(pattern)
+    photos = re.compile('.+(\.jpg|\.jpeg|\.png)$')
+    movies = re.compile('.+(\.mpg|\.mpeg|\.mov|\.avi)$')
     ignore = re.compile('.+\.py[c]?$')
     w = sys.stdout.write
     for f in iglob('*.*'):
@@ -73,15 +73,38 @@ def main():
             continue
 
         lower = f.lower()
-        assert expected.match(lower), f
+        is_photo = bool(photos.match(lower))
+        is_movie = bool(movies.match(lower))
+        assert is_photo or is_movie, f
 
+        # On UNIX (at least on OS X where this was first written), mtime
+        # is more likely to represent the time the image was created versus
+        # ctime if the image has just been imported.  However, if we may
+        # import old photos that lived on Windows drives for a while, where
+        # ctime may be more accurate.  Basically, pick the earliest one.
+        # (Which we then simply refer to as ``mtime``.  Despite it actually
+        # representing ctime.  Heh.)
+        s = os.stat(f)
+        mtime = s.st_mtime
+        if s.st_ctime < s.st_mtime:
+            w("%s: ctime < mtime: %s < %s\n" % (f, s.st_ctime, s.st_mtime))
+            mtime = s.st_ctime
+
+        mtime = convert_mtime(mtime)
+
+        data = None
+        exif_time = mtime
         with open(f, 'r') as h:
-            exif_time_str = exif.process_file(h)['Image DateTime'].printable
+            data = h.read()
+            h.seek(0)
+            if is_photo:
+                try:
+                    tags = exif.process_file(h)
+                    exif_time_str = tags['Image DateTime'].printable
+                    exif_time = convert_exif_datetime_string(exif_time_str)
+                except KeyError:
+                    pass
 
-        exif_time = convert_exif_datetime_string(exif_time_str)
-        mtime = convert_mtime(os.stat(f).st_mtime)
-
-        w(f)
         timestr = None
         if exif_time == mtime:
             timestr = exif_time
@@ -91,7 +114,8 @@ def main():
             elif '--use-mtime' in sys.argv:
                 timestr = mtime
             else:
-                w(": exif/mtime mismatch: %s != %s\n" % (exif_time, mtime))
+                args = (f, exif_time, mtime)
+                w("%s: exif/mtime mismatch: %s != %s\n" % args)
                 continue
 
         assert timestr
@@ -102,18 +126,45 @@ def main():
         assert os.path.isdir(year)
 
 
-        ending = lower[f.rfind('.'):]
-        if ending == '.jpeg':
-            ending = '.jpg'
+        # .jpeg->.jpg && .mpeg->.mpg
+        ending = lower[f.rfind('.'):].replace('peg', 'pg')
 
         # Make sure the new file name is unique.
+        need_to_rename_original = False
         for i in chain(('',), count(2)):
             name = ''.join((timestr, ('-' if i else ''), str(i), ending))
-            path = os.path.join(basedir, year, name)
+            path = join_path(basedir, year, name)
+            if os.path.exists(path):
+                our_cxsum = hashlib.sha256(data).hexdigest()
+                with open(path, 'r') as t:
+                    their_cxsum = hashlib.sha256(t.read()).hexdigest()
+
+                if our_cxsum == their_cxsum:
+                    args = (f, year, name)
+                    w('%s identical to %s/%s, skipping...\n' % args)
+                    name = None
+                    break
+
+                if not i:
+                    need_to_rename_original = True
+
             if not os.path.exists(path):
                 break
 
-        w(' -> %s/%s' % (year, name))
+        if not name:
+            continue
+
+        if need_to_rename_original:
+            original_name = timestr + ending
+            original_path = join_path(basedir, year, original_name)
+            new_name = timestr + '-1' + ending
+            new_path = join_path(basedir, year, new_name)
+            assert not os.path.exists(new_path)
+            args = (year, original_name, year, new_name)
+            w('%s/%s -> %s/%s\n' % args)
+            os.rename(original_path, new_path)
+
+        w('%s -> %s/%s' % (f, year, name))
 
         os.rename(os.path.abspath(f), path)
 
