@@ -150,6 +150,10 @@ def main():
                     need_to_rename_original = True
 
             if not os.path.exists(path):
+                if not i:
+                    mname = ''.join((timestr, '-1', ending))
+                    if os.path.exists(join_path(basedir, year, mname)):
+                        continue
                 break
 
         if not name:
@@ -158,15 +162,22 @@ def main():
         if need_to_rename_original:
             original_name = timestr + ending
             original_path = join_path(basedir, year, original_name)
-            new_name = timestr + '-1' + ending
-            new_path = join_path(basedir, year, new_name)
-            msg = "%s: %s, %s" % (f, original_path, new_path)
-            assert not os.path.exists(new_path), msg
+            for y in count(1):
+                if i == y:
+                    continue
+                new_name = ''.join((timestr, '-', str(y), ending))
+                new_path = join_path(basedir, year, new_name)
+                if not os.path.exists(new_path):
+                    break
+
+            assert new_path != path, "%s: %s == %s" % (f, new_path, path)
+            args = (year, original_name, year, new_name)
             w('%s/%s -> %s/%s\n' % args)
             os.rename(original_path, new_path)
 
         w('%s -> %s/%s' % (f, year, name))
 
+        assert not os.path.exists(path), "%s: %s" % (f, path)
         os.rename(os.path.abspath(f), path)
 
         w('\n')
